@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Tracker - Gmail Integration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="config.js"></script>
+    <style>
+        .kanban-column {
+            min-height: 400px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .job-card {
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        .job-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Header -->
+    <header class="bg-blue-600 text-white p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold">📋 Job Tracker</h1>
+            <div class="flex gap-4">
+                <button id="fetchBtn" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition">
+                    Fetch from Gmail
+                </button>
+                <button id="addJobBtn" class="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition">
+                    Add Job Manually
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto p-6">
+        <!-- Status Section -->
+        <div id="statusSection" class="bg-white rounded-lg shadow-md p-6 mb-6 hidden">
+            <h3 class="text-lg font-semibold mb-4">Status</h3>
+            <div id="statusContent" class="space-y-2"></div>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progressSection" class="bg-white rounded-lg shadow-md p-6 mb-6 hidden">
+            <h3 class="text-lg font-semibold mb-4">Processing Gmail</h3>
+            <div class="w-full bg-gray-200 rounded-full h-4 mb-4">
+                <div id="progressBar" class="bg-blue-600 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p id="progressText" class="text-gray-600">Starting...</p>
+        </div>
+
+        <!-- Kanban Board -->
+        <div id="kanbanBoard" class="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div class="kanban-column p-4">
+                <h3 class="font-semibold text-gray-700 mb-3">📋 Applied</h3>
+                <div id="applied" class="space-y-3" ondrop="drop(event, 'applied')" ondragover="allowDrop(event)"></div>
+            </div>
+            <div class="kanban-column p-4">
+                <h3 class="font-semibold text-gray-700 mb-3">🔍 Screening</h3>
+                <div id="screening" class="space-y-3" ondrop="drop(event, 'screening')" ondragover="allowDrop(event)"></div>
+            </div>
+            <div class="kanban-column p-4">
+                <h3 class="font-semibold text-gray-700 mb-3">📞 Interview</h3>
+                <div id="interview" class="space-y-3" ondrop="drop(event, 'interview')" ondragover="allowDrop(event)"></div>
+            </div>
+            <div class="kanban-column p-4">
+                <h3 class="font-semibold text-gray-700 mb-3">🎯 Offer</h3>
+                <div id="offer" class="space-y-3" ondrop="drop(event, 'offer')" ondragover="allowDrop(event)"></div>
+            </div>
+            <div class="kanban-column p-4">
+                <h3 class="font-semibold text-gray-700 mb-3">❌ Rejected</h3>
+                <div id="rejected" class="space-y-3" ondrop="drop(event, 'rejected')" ondragover="allowDrop(event)"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Add Job Modal -->
+    <div id="addJobModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 class="text-xl font-bold mb-4">Add Job Manually</h3>
+            <form id="addJobForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Company</label>
+                    <input type="text" id="company" required class="w-full border rounded-lg px-3 py-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Position</label>
+                    <input type="text" id="position" required class="w-full border rounded-lg px-3 py-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <select id="status" class="w-full border rounded-lg px-3 py-2">
+                        <option value="applied">Applied</option>
+                        <option value="screening">Screening</option>
+                        <option value="interview">Interview</option>
+                        <option value="offer">Offer</option>
+                        <option value="rejected">Rejected</option>
+                    </select>
+                </div>
+                <div class="flex gap-3">
+                    <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+                        Add Job
+                    </button>
+                    <button type="button" onclick="closeAddJobModal()" class="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400">
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const CLIENT_ID = '99861683980-hdnk82l1t3o9dih99tpvefol7rb63h2n.apps.googleusercontent.com';
+        const API_KEY = 'AIzaSyBxYz1234567890abcdef'; // You'll need to set this
+        let accessToken = null;
+        let jobs = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuthStatus();
+            loadJobsFromStorage();
+        });
+
+        // Check authentication status
+        function checkAuthStatus() {
+            // Use the existing working tokens from localStorage
+            const savedToken = localStorage.getItem('gmail_access_token');
+            
+            if (savedToken) {
+                accessToken = savedToken;
+                showAuthenticated();
+            } else {
+                // Check if config.js has the token
+                if (typeof GMAIL_ACCESS_TOKEN !== 'undefined' && GMAIL_ACCESS_TOKEN) {
+                    localStorage.setItem('gmail_access_token', GMAIL_ACCESS_TOKEN);
+                    accessToken = GMAIL_ACCESS_TOKEN;
+                    showAuthenticated();
+                } else {
+                    showUnauthenticated();
+                    showStatus('⚠️ Please run: node setup.js to configure Gmail access', 'warning');
+                }
+            }
+        }
+
+        // Show authenticated state
+        function showAuthenticated() {
+            document.getElementById('fetchBtn').classList.remove('hidden');
+            showStatus('✅ Ready to fetch Gmail emails', 'success');
+        }
+
+        // Show unauthenticated state
+        function showUnauthenticated() {
+            document.getElementById('fetchBtn').classList.add('hidden');
+            showStatus('❌ Gmail tokens not available', 'error');
+        }
+
+        // Fetch emails from Gmail
+        document.getElementById('fetchBtn').addEventListener('click', async function() {
+            if (!accessToken) {
+                showStatus('❌ Please authenticate first', 'error');
+                return;
+            }
+
+            showProgress(true);
+            updateProgress(0, 'Fetching emails...');
+
+            try {
+                const response = await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages?q=application+OR+applied+OR+interview+OR+job+OR+position+OR+resume+OR+cover+letter&maxResults=50`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                const data = await response.json();
+                const emails = data.messages || [];
+
+                updateProgress(50, `Processing ${emails.length} emails...`);
+
+                // Process each email
+                for (let i = 0; i < emails.length; i++) {
+                    const email = await fetchEmailDetails(emails[i].id);
+                    const job = extractJobFromEmail(email);
+                    if (job) {
+                        jobs.push(job);
+                        addJobToBoard(job);
+                    }
+                    updateProgress(50 + (i / emails.length) * 50, `Processed ${i + 1}/${emails.length} emails...`);
+                }
+
+                saveJobsToStorage();
+                updateProgress(100, `✅ Added ${jobs.length} jobs!`);
+                setTimeout(() => showProgress(false), 2000);
+
+            } catch (error) {
+                showStatus('❌ Error fetching emails: ' + error.message, 'error');
+                showProgress(false);
+            }
+        });
+
+        // Fetch email details
+        async function fetchEmailDetails(messageId) {
+            const response = await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            });
+            return await response.json();
+        }
+
+        // Extract job from email
+        function extractJobFromEmail(email) {
+            const content = atob(email.payload.parts?.[0]?.body?.data || email.payload.body?.data || '');
+            const subject = email.payload.headers.find(h => h.name === 'Subject')?.value || '';
+            
+            // Simple extraction logic
+            const companyMatch = content.match(/(?:at|from|company)\s+([A-Z][a-zA-Z\s&]+)/i);
+            const positionMatch = subject.match(/(?:position|role|job)\s+(?:as\s+)?([A-Za-z\s&]+)/i);
+            
+            if (companyMatch || positionMatch || subject.toLowerCase().includes('application')) {
+                return {
+                    id: Date.now() + Math.random(),
+                    company: companyMatch?.[1] || 'Unknown Company',
+                    position: positionMatch?.[1] || subject,
+                    status: 'applied',
+                    date: new Date().toISOString()
+                };
+            }
+            return null;
+        }
+
+        // Add job to board
+        function addJobToBoard(job) {
+            const jobCard = createJobCard(job);
+            document.getElementById(job.status).appendChild(jobCard);
+        }
+
+        // Create job card
+        function createJobCard(job) {
+            const card = document.createElement('div');
+            card.className = 'job-card p-3 cursor-move';
+            card.draggable = true;
+            card.dataset.jobId = job.id;
+            card.ondragstart = (e) => drag(e);
+            card.innerHTML = `
+                <div class="font-semibold text-sm">${job.company}</div>
+                <div class="text-xs text-gray-600">${job.position}</div>
+                <div class="text-xs text-gray-400 mt-1">${new Date(job.date).toLocaleDateString()}</div>
+            `;
+            return card;
+        }
+
+        // Manual job addition
+        document.getElementById('addJobBtn').addEventListener('click', function() {
+            document.getElementById('addJobModal').classList.remove('hidden');
+        });
+
+        document.getElementById('addJobForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const job = {
+                id: Date.now(),
+                company: document.getElementById('company').value,
+                position: document.getElementById('position').value,
+                status: document.getElementById('status').value,
+                date: new Date().toISOString()
+            };
+
+            jobs.push(job);
+            addJobToBoard(job);
+            saveJobsToStorage();
+            closeAddJobModal();
+        });
+
+        function closeAddJobModal() {
+            document.getElementById('addJobModal').classList.add('hidden');
+        }
+
+        // Drag and drop
+        function allowDrop(ev) {
+            ev.preventDefault();
+        }
+
+        function drag(ev) {
+            ev.dataTransfer.setData("jobId", ev.target.dataset.jobId);
+        }
+
+        function drop(ev, newStatus) {
+            ev.preventDefault();
+            const jobId = ev.dataTransfer.getData("jobId");
+            const job = jobs.find(j => j.id == jobId);
+            
+            if (job) {
+                job.status = newStatus;
+                const card = document.querySelector(`[data-job-id="${jobId}"]`);
+                document.getElementById(newStatus).appendChild(card);
+                saveJobsToStorage();
+            }
+        }
+
+        // Storage functions
+        function saveJobsToStorage() {
+            localStorage.setItem('jobtracker_jobs', JSON.stringify(jobs));
+        }
+
+        function loadJobsFromStorage() {
+            const saved = localStorage.getItem('jobtracker_jobs');
+            if (saved) {
+                jobs = JSON.parse(saved);
+                jobs.forEach(job => addJobToBoard(job));
+            }
+        }
+
+        // UI functions
+        function showStatus(message, type) {
+            const section = document.getElementById('statusSection');
+            const content = document.getElementById('statusContent');
+            
+            section.classList.remove('hidden');
+            content.innerHTML = `<div class="${type === 'error' ? 'text-red-600' : 'text-green-600'}">${message}</div>`;
+            
+            setTimeout(() => section.classList.add('hidden'), 3000);
+        }
+
+        function showProgress(show) {
+            const section = document.getElementById('progressSection');
+            if (show) {
+                section.classList.remove('hidden');
+            } else {
+                section.classList.add('hidden');
+            }
+        }
+
+        function updateProgress(percent, text) {
+            document.getElementById('progressBar').style.width = percent + '%';
+            document.getElementById('progressText').textContent = text;
+        }
+    </script>
+</body>
+</html>

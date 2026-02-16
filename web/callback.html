@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication Callback</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+    <div class="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+        <div class="text-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <h2 class="text-xl font-semibold mb-2">Processing Authentication...</h2>
+            <p class="text-gray-600">Please wait while we complete your Gmail authentication.</p>
+        </div>
+    </div>
+
+    <script>
+        // Handle OAuth callback
+        window.addEventListener('load', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const error = urlParams.get('error');
+            
+            if (error) {
+                document.body.innerHTML = `
+                    <div class="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+                        <div class="text-center">
+                            <div class="text-red-600 text-6xl mb-4">❌</div>
+                            <h2 class="text-xl font-semibold mb-2">Authentication Failed</h2>
+                            <p class="text-gray-600 mb-4">Error: ${error}</p>
+                            <a href="./index.html" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 inline-block">
+                                Try Again
+                            </a>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            if (code) {
+                // Exchange authorization code for access token
+                exchangeCodeForToken(code);
+            } else {
+                document.body.innerHTML = `
+                    <div class="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+                        <div class="text-center">
+                            <div class="text-yellow-600 text-6xl mb-4">⚠️</div>
+                            <h2 class="text-xl font-semibold mb-2">Invalid Response</h2>
+                            <p class="text-gray-600 mb-4">No authorization code received.</p>
+                            <a href="./index.html" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 inline-block">
+                                Try Again
+                            </a>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+        
+        async function exchangeCodeForToken(code) {
+            const CLIENT_ID = '99861683980-hdnk82l1t3o9dih99tpvefol7rb63h2n.apps.googleusercontent.com';
+            const CLIENT_SECRET = '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';
+            const REDIRECT_URI = window.location.origin + '/callback.html';
+            
+            try {
+                const response = await fetch('https://oauth2.googleapis.com/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        client_id: CLIENT_ID,
+                        client_secret: CLIENT_SECRET,
+                        code: code,
+                        grant_type: 'authorization_code',
+                        redirect_uri: REDIRECT_URI
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.access_token) {
+                    // Store tokens and redirect
+                    localStorage.setItem('gmail_access_token', data.access_token);
+                    localStorage.setItem('gmail_refresh_token', data.refresh_token || '');
+                    
+                    document.body.innerHTML = `
+                        <div class="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+                            <div class="text-center">
+                                <div class="text-green-600 text-6xl mb-4">✅</div>
+                                <h2 class="text-xl font-semibold mb-2">Authentication Successful!</h2>
+                                <p class="text-gray-600 mb-4">Redirecting to JobTracker...</p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    setTimeout(() => {
+                        window.location.href = './index.html';
+                    }, 2000);
+                } else {
+                    throw new Error(data.error_description || 'No access token received');
+                }
+                
+            } catch (error) {
+                document.body.innerHTML = `
+                    <div class="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+                        <div class="text-center">
+                            <div class="text-red-600 text-6xl mb-4">❌</div>
+                            <h2 class="text-xl font-semibold mb-2">Token Exchange Failed</h2>
+                            <p class="text-gray-600 mb-4">${error.message}</p>
+                            <a href="./index.html" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 inline-block">
+                                Try Again
+                            </a>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
